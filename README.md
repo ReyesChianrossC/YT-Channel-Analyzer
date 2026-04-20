@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=flat&logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-3.x-000000?style=flat&logo=flask)
 ![yt-dlp](https://img.shields.io/badge/yt--dlp-latest-FF0000?style=flat&logo=youtube)
-![License](https://img.shields.io/badge/License-MIT-green?style=flat)
+![License](https://img.shields.io/badge/License-GPLv3-blue?style=flat)
 
 ---
 
@@ -81,4 +81,4 @@ YT-Channel-Analyzer/
 
 ## 📄 License
 
-MIT — free to use, modify, and distribute.
+GPLv3 — see the [LICENSE](LICENSE) file for details.
