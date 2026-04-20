@@ -12,6 +12,9 @@ import queue
 from datetime import datetime
 from typing import List, Dict, Optional
 
+class StopRequestedError(BaseException):
+    pass
+
 from flask import Flask, render_template, request, Response, jsonify, stream_with_context
 
 app = Flask(__name__)
@@ -61,6 +64,16 @@ def push_event(event_type: str, data: dict):
     state.event_queue.put({"type": event_type, "data": data})
 
 
+def interruptible_sleep(duration: float):
+    steps = int(duration / 0.1)
+    for _ in range(steps):
+        if state.stop_requested:
+            raise StopRequestedError()
+        time.sleep(0.1)
+    if state.stop_requested:
+        raise StopRequestedError()
+    time.sleep(duration % 0.1)
+
 def adaptive_rate_limit(success: bool = True):
     """Intelligent adaptive rate limiting (same logic as legacy app)."""
     current_time = time.time()
@@ -75,13 +88,13 @@ def adaptive_rate_limit(success: bool = True):
     time_since_last = current_time - state.last_request_time
     if time_since_last < state.adaptive_delay:
         delay = state.adaptive_delay - time_since_last + random.uniform(0, 0.5)
-        time.sleep(delay)
+        interruptible_sleep(delay)
 
     state.last_request_time = time.time()
     state.request_count += 1
 
     if state.request_count % 10 == 0:
-        time.sleep(random.uniform(1, 2))
+        interruptible_sleep(random.uniform(1, 2))
 
 
 # ─── Core analysis (runs in background thread) ───────────────────────────────
@@ -98,6 +111,11 @@ def run_analysis(url: str, min_views: int):
 
     push_event("progress", {"percent": 5, "text": "Scanning channel…", "phase": "Phase 1/3"})
 
+    def check_stop_filter(info_dict, *args, **kwargs):
+        if state.stop_requested:
+            raise StopRequestedError()
+        return None
+
     # ── Phase 1: fast flat scan ──
     ydl_opts_fast = {
         "quiet": True,
@@ -105,113 +123,130 @@ def run_analysis(url: str, min_views: int):
         "extract_flat": True,
         "ignoreerrors": True,
         "playlist_items": "1-1000",
+        "match_filter": check_stop_filter,
     }
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts_fast) as ydl:
-            info = ydl.extract_info(url, download=False)
-
-        if not info or "entries" not in info:
-            push_event("error", {"message": "No videos found in this channel."})
-            state.running = False
-            return
-
-        video_ids = [e["id"] for e in info["entries"] if e and e.get("id")]
-        total = len(video_ids)
-
-        if total == 0:
-            push_event("error", {"message": "No valid videos found."})
-            state.running = False
-            return
-
-        push_event("progress", {
-            "percent": 15,
-            "text": f"Found {total} videos",
-            "phase": "Phase 2/3",
-            "total": total,
-        })
-
-    except Exception as e:
-        push_event("error", {"message": f"Channel scan failed: {e}"})
-        state.running = False
-        return
-
-    # ── Phase 2: detailed metadata per video ──
     ydl_opts_detail = {
         "quiet": True,
         "no_warnings": True,
         "extract_flat": False,
         "ignoreerrors": True,
+        "match_filter": check_stop_filter,
     }
 
-    qualifying = 0
-    errors = 0
+    total = 0
     processed = 0
-
+    qualifying = 0
     start_time = time.time()
 
-    with yt_dlp.YoutubeDL(ydl_opts_detail) as ydl_d:
-        for i, vid_id in enumerate(video_ids):
-            if state.stop_requested:
-                push_event("stopped", {"processed": processed, "total": total})
-                break
+    try:
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts_fast) as ydl:
+                info = ydl.extract_info(url, download=False)
 
-            try:
-                adaptive_rate_limit(success=True)
+            if not info:
+                push_event("error", {"message": "Failed to extract channel info."})
+                state.running = False
+                return
 
-                pct = 15 + (i / total) * 75
-                speed_text = f"Delay: {state.adaptive_delay:.1f}s | Success: {state.success_rate:.0%}"
+            raw_video_ids = []
+            def _extract_ids(d):
+                if not d: return
+                if "entries" in d:
+                    for e in d["entries"]: _extract_ids(e)
+                elif d.get("id") and d.get("url"):
+                    raw_video_ids.append(d["id"])
+                    
+            _extract_ids(info)
+            
+            # Remove duplicates while preserving order
+            video_ids = list(dict.fromkeys(raw_video_ids))
+            total = len(video_ids)
 
-                elapsed = time.time() - start_time
-                avg_per_video = elapsed / (i + 1) if i > 0 else 0
-                eta_secs = avg_per_video * (total - i - 1)
-                eta_str = f"{int(eta_secs // 60)}m {int(eta_secs % 60)}s" if eta_secs > 0 else "—"
+            if total == 0:
+                push_event("error", {"message": "No valid videos found."})
+                state.running = False
+                return
 
-                push_event("progress", {
-                    "percent": pct,
-                    "text": f"Processing {processed + 1}/{total}",
-                    "phase": speed_text,
-                    "eta": eta_str,
-                })
+            push_event("progress", {
+                "percent": 15,
+                "text": f"Found {total} videos",
+                "phase": "Phase 2/3",
+                "total": total,
+            })
 
-                video_url = f"https://www.youtube.com/watch?v={vid_id}"
-                video_info = ydl_d.extract_info(video_url, download=False)
+        except StopRequestedError:
+            raise
+        except Exception as e:
+            push_event("error", {"message": f"Channel scan failed: {e}"})
+            state.running = False
+            return
 
-                view_count = video_info.get("view_count", 0)
+        # ── Phase 2: detailed metadata per video ──
+        errors = 0
 
-                if view_count and view_count >= min_views:
-                    qualifying += 1
-                    title = video_info.get("title", "Unknown Title")
-                    upload_raw = video_info.get("upload_date", "")
-                    try:
-                        upload_date = datetime.strptime(upload_raw, "%Y%m%d").strftime("%Y-%m-%d")
-                    except Exception:
-                        upload_date = ""
+        with yt_dlp.YoutubeDL(ydl_opts_detail) as ydl_d:
+            for i, vid_id in enumerate(video_ids):
+                if state.stop_requested:
+                    raise StopRequestedError()
 
-                    video_data = {
-                        "title": title,
-                        "url": video_url,
-                        "views": view_count,
-                        "views_fmt": f"{view_count:,}",
-                        "views_short": format_views(view_count),
-                        "duration": format_duration(video_info.get("duration")),
-                        "upload_date": upload_date,
-                        "thumbnail": video_info.get("thumbnail", ""),
-                    }
-                    state.current_videos.append(video_data)
-                    push_event("video_found", {"video": video_data, "count": qualifying})
+                try:
+                    adaptive_rate_limit(success=True)
 
-                processed += 1
+                    pct = 15 + (i / total) * 75
+                    speed_text = f"Delay: {state.adaptive_delay:.1f}s | Success: {state.success_rate:.0%}"
 
-            except Exception:
-                errors += 1
-                adaptive_rate_limit(success=False)
-                if errors > 5:
-                    state.adaptive_delay = min(10.0, state.adaptive_delay * 2)
-                processed += 1
-                continue
+                    elapsed = time.time() - start_time
+                    avg_per_video = elapsed / (i + 1) if i > 0 else 0
+                    eta_secs = avg_per_video * (total - i - 1)
+                    eta_str = f"{int(eta_secs // 60)}m {int(eta_secs % 60)}s" if eta_secs > 0 else "—"
 
-    if not state.stop_requested:
+                    push_event("progress", {
+                        "percent": pct,
+                        "text": f"Processing {processed + 1}/{total}",
+                        "phase": speed_text,
+                        "eta": eta_str,
+                    })
+
+                    video_url = f"https://www.youtube.com/watch?v={vid_id}"
+                    video_info = ydl_d.extract_info(video_url, download=False)
+
+                    view_count = video_info.get("view_count", 0)
+
+                    if view_count and view_count >= min_views:
+                        qualifying += 1
+                        title = video_info.get("title", "Unknown Title")
+                        upload_raw = video_info.get("upload_date", "")
+                        try:
+                            upload_date = datetime.strptime(upload_raw, "%Y%m%d").strftime("%Y-%m-%d")
+                        except Exception:
+                            upload_date = ""
+
+                        video_data = {
+                            "title": title,
+                            "url": video_url,
+                            "views": view_count,
+                            "views_fmt": f"{view_count:,}",
+                            "views_short": format_views(view_count),
+                            "duration": format_duration(video_info.get("duration")),
+                            "upload_date": upload_date,
+                            "thumbnail": video_info.get("thumbnail", ""),
+                        }
+                        state.current_videos.append(video_data)
+                        push_event("video_found", {"video": video_data, "count": qualifying})
+
+                    processed += 1
+
+                except StopRequestedError:
+                    raise
+                except Exception:
+                    errors += 1
+                    adaptive_rate_limit(success=False)
+                    if errors > 5:
+                        state.adaptive_delay = min(10.0, state.adaptive_delay * 2)
+                    processed += 1
+                    continue
+
         state.current_videos.sort(key=lambda x: x["views"], reverse=True)
         push_event("complete", {
             "videos": state.current_videos,
@@ -220,7 +255,10 @@ def run_analysis(url: str, min_views: int):
             "elapsed": f"{time.time() - start_time:.1f}s",
         })
 
-    state.running = False
+    except StopRequestedError:
+        push_event("stopped", {"processed": processed, "total": total})
+    finally:
+        state.running = False
 
 
 # ─── Flask routes ─────────────────────────────────────────────────────────────

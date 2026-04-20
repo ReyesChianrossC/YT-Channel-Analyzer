@@ -111,6 +111,7 @@ function onComplete(data) {
   progressFill.style.width = '100%';
   progressLabel.textContent = '✅ Analysis complete!';
   progressMeta.textContent = '100%';
+  progressFill.classList.add('done');
 
   setRunning(false);
   showToast(`Done! Found ${data.qualifying} qualifying video(s).`, 'success');
@@ -118,6 +119,7 @@ function onComplete(data) {
 
 function onStopped(data) {
   progressLabel.textContent = `⏹ Stopped at ${data.processed}/${data.total}`;
+  progressFill.classList.add('done');
   setRunning(false);
   showToast('Analysis stopped. Results so far are shown below.', 'success');
 }
@@ -167,6 +169,7 @@ function setRunning(state) {
   } else {
     analyzeBtn.innerHTML = '🔍 Analyze Channel';
     clearBtn.disabled = false;
+    stopBtn.innerHTML = '⏹ Stop &amp; Save';
     if (evtSource) { evtSource.close(); evtSource = null; }
   }
 }
@@ -182,6 +185,7 @@ analyzeBtn.addEventListener('click', async () => {
   collectedVideos = [];
   videoList.innerHTML = '';
   summaryBox.classList.remove('visible');
+  progressFill.classList.remove('done');
   progressFill.style.width = '0%';
   progressLabel.textContent = 'Starting…';
   progressMeta.textContent  = '0%';
@@ -217,6 +221,7 @@ clearBtn.addEventListener('click', () => {
   videoList.innerHTML = '';
   summaryBox.classList.remove('visible');
   progressSection.classList.remove('visible');
+  progressFill.classList.remove('done');
   progressFill.style.width = '0%';
   statFound.textContent = statScanned.textContent = statRate.textContent = '—';
   urlInput.value = '';

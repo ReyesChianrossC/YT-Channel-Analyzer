@@ -21,54 +21,55 @@
 
     <!-- ── Header ──────────────────────────────────── -->
     <header class="header">
-      <div class="header-badge">
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><circle cx="5" cy="5" r="5"/></svg>
-        Portfolio Project
-      </div>
       <h1>YT Channel Analyzer</h1>
-      <p>Surface viral videos across any channel — fast & unbannable with adaptive rate limiting</p>
+      <p>Surface viral videos across any channel — fast &amp; unbannable with adaptive rate limiting</p>
     </header>
 
     <!-- ── Control Card ─────────────────────────────── -->
     <section class="card card--control" aria-label="Analysis controls">
-      <div class="form-row">
-        <div class="form-group">
-          <label for="channel-url">YouTube Channel URL</label>
-          <input
-            id="channel-url"
-            class="input"
-            type="url"
-            placeholder="https://www.youtube.com/@channelname"
-            autocomplete="off"
-            spellcheck="false"
-          />
+      <div style="display:flex; flex-wrap:wrap; gap:1.5rem;">
+        
+        <!-- Left Column -->
+        <div style="flex: 1; min-width: 260px; display:flex; flex-direction:column; gap:1.25rem;">
+          <div class="form-group" style="width: 100%;">
+            <label for="channel-url">YouTube Channel URL</label>
+            <input
+              id="channel-url"
+              class="input"
+              type="url"
+              placeholder="https://www.youtube.com/@channelname"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          
+          <div style="display:flex; gap:.75rem; flex-wrap:wrap; align-items:center;">
+            <button id="btn-analyze" class="btn btn-primary">🔍 Analyze Channel</button>
+            <button id="btn-stop"    class="btn btn-danger"  disabled>⏹ Stop &amp; Save</button>
+            <button id="btn-clear"   class="btn btn-ghost">🗑 Clear</button>
+          </div>
         </div>
-        <div class="form-group" style="flex:0 0 auto;">
-          <label for="min-views">Min Views Threshold</label>
-          <input
-            id="min-views"
-            class="input input-views"
-            type="text"
-            value="500,000"
-            inputmode="numeric"
-          />
-        </div>
-      </div>
 
-      <div style="display:flex; gap:.75rem; margin-top:1.25rem; flex-wrap:wrap; align-items:center;">
-        <button id="btn-analyze" class="btn btn-primary">🔍 Analyze Channel</button>
-        <button id="btn-stop"    class="btn btn-danger"  disabled>⏹ Stop &amp; Save</button>
-        <button id="btn-clear"   class="btn btn-ghost">🗑 Clear</button>
-        <button id="btn-export"  class="btn btn-ghost" style="margin-left:auto;">⬇ Export .txt</button>
+        <!-- Right Column -->
+        <div style="flex: 0 0 auto; width: 180px; display:flex; flex-direction:column; gap:1.25rem; align-items: stretch;">
+          <div class="form-group" style="width: 100%; min-width: 0;">
+            <label for="min-views">Min Views Threshold</label>
+            <input
+              id="min-views"
+              class="input input-views"
+              type="text"
+              value="500,000"
+              inputmode="numeric"
+              style="width: 100%; max-width: 100%;"
+            />
+          </div>
+          <button id="btn-export" class="btn btn-ghost" style="width:100%; justify-content:center;">⬇ Export .txt</button>
+        </div>
+
       </div>
     </section>
 
-    <!-- ── Live Stats Row ────────────────────────────── -->
-    <div class="stats-row" style="margin-top:1.25rem;">
-      <div class="stat-chip accent">Videos found <span id="stat-found" class="val">—</span></div>
-      <div class="stat-chip primary">Total scanned <span id="stat-scanned" class="val">—</span></div>
-      <div class="stat-chip warning">Elapsed <span id="stat-rate" class="val">—</span></div>
-    </div>
+
 
     <!-- ── Progress Card ─────────────────────────────── -->
     <section id="progress-section" class="card card--progress progress-section" aria-live="polite" aria-label="Analysis progress">
@@ -89,7 +90,12 @@
     <!-- ── Results Card ───────────────────────────────── -->
     <section class="card card--results" aria-label="Analysis results">
       <div class="results-header">
-        <h2 class="results-title">📊 Results</h2>
+        <h2 class="results-title">Results</h2>
+        <div class="stats-row">
+          <div class="stat-chip accent">Found <span id="stat-found" class="val">—</span></div>
+          <div class="stat-chip primary">Scanned <span id="stat-scanned" class="val">—</span></div>
+          <div class="stat-chip warning">Elapsed <span id="stat-rate" class="val">—</span></div>
+        </div>
       </div>
 
       <!-- Summary box (shown on complete) -->
